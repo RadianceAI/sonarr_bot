@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from sonarr-bot!")
+from .bot import main
