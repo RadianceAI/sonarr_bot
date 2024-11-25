@@ -1,45 +1,65 @@
 from os import environ as env
 from dotenv import load_dotenv
-from telegram import ForceReply, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+
+import logging
+
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+)
+
+from . import handlers
 
 load_dotenv()
 
 
-# Define a few command handlers. These usually take the two arguments update and
-# context.
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
-    user = update.effective_user
-    await update.message.reply_html(
-        rf"Hi {user.mention_html()}!",
-        reply_markup=ForceReply(selective=True),
-    )
+# Enable logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+# set higher logging level for httpx to avoid all GET and POST requests being logged
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
-    await update.message.reply_text("Help!")
-
-
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Echo the user message."""
-    await update.message.reply_text(update.message.text)
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    """Start the bot."""
+    """Run the bot."""
     # Create the Application and pass it your bot's token.
     application = Application.builder().token(env["TOKEN"]).build()
 
-    # on different commands - answer in Telegram
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
+    new_download_handler = ConversationHandler(
+        entry_points=[MessageHandler(filters.ALL, handlers.new_download_init)],
+        states={
+            handlers.NEW_DOWNLOAD_SEARCH: [
+                MessageHandler(filters.TEXT, handlers.new_download_search)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", handlers.cancel)],
+        map_to_parent={
+            handlers.NEW_DOWNLOAD: handlers.NEW_DOWNLOAD,
+            handlers.MAIN_MENU: handlers.MAIN_MENU,
+        },
+    )
 
-    # on non command i.e message - echo the message on Telegram
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+    main_menu_handlers = [
+        new_download_handler,
+    ]
 
-    # Run the bot until the user presses Ctrl-C
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("main_menu", handlers.main_menu)],
+        states={
+            handlers.MAIN_MENU: main_menu_handlers,
+        },
+        fallbacks=[CommandHandler("cancel", handlers.cancel)],
+    )
+
+    application.add_handler(conv_handler)
+
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
